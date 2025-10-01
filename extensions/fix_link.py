@@ -3,6 +3,8 @@ Fix message links
 """
 import asyncio
 from typing import Union
+from datetime import datetime, timedelta
+import tldextract
 from interactions import (
     BrandColors,
     Button,
@@ -17,7 +19,8 @@ from interactions import (
     MessageFlags,
     message_context_menu,
     slash_command,
-    User
+    User,
+    Permissions
 )
 from interactions.api.events import MessageCreate
 from src import logutil, linkparser
@@ -31,6 +34,52 @@ class FixLink(Extension):
   async def not_a_bot(ctx: ContextMenuContext) -> bool:
     result = not ctx.target.author.bot
     return result
+
+  def is_apple_stocks_url(self, url: str) -> bool:
+    """Check if a URL is an Apple Stocks link"""
+    try:
+      extracted_url = tldextract.extract(url)
+      return (extracted_url.registered_domain == 'apple.com' and 
+              extracted_url.subdomain == 'stocks')
+    except Exception:
+      return False
+
+  async def handle_apple_stocks_timeout(self, message: Message):
+    """Optional feature: timeout users who post Apple Stocks links"""
+    try:
+      # Only attempt timeout if the message is in a guild (not DM)
+      if message.guild is None:
+        return
+      
+      # Check if the bot has timeout permissions
+      bot_member = await message.guild.fetch_member(message._client.user.id)
+      if not bot_member.guild_permissions.MODERATE_MEMBERS:
+        logger.info("Bot lacks MODERATE_MEMBERS permission for Apple Stocks timeout")
+        return
+      
+      # Check if the message author is a Member (not just User) and can be timed out
+      if isinstance(message.author, Member) and not message.author.guild_permissions.ADMINISTRATOR:
+        # Timeout for 5 minutes (300 seconds)
+        timeout_until = datetime.now() + timedelta(minutes=5)
+        
+        await message.author.timeout(
+          timeout_until,
+          reason="Posted Apple Stocks link - automatic timeout"
+        )
+        
+        # Send a message about the timeout
+        await message.channel.send(
+          f"⏰ {message.author.mention} has been timed out for 5 minutes for posting Apple Stocks links.",
+          silent=True,
+          flags=MessageFlags.SILENT
+        )
+        
+        logger.info(f"Applied 5-minute timeout to {message.author} for Apple Stocks link")
+      
+    except Exception as e:
+      # Silently fail - timeout is optional feature
+      logger.debug(f"Could not apply Apple Stocks timeout: {e}")
+      pass
 
   close_button = Button(
                   label="Close",
@@ -67,6 +116,15 @@ class FixLink(Extension):
     if (not_a_bot):
       await asyncio.sleep(2) # This is required because the original embed isn't always instantly available
       message: Message = event.message
+      
+      # Check for Apple Stocks links and handle timeout (optional feature)
+      has_apple_stocks = False
+      if len(message.embeds) > 0:
+        for embed in message.embeds:
+          if embed.url and self.is_apple_stocks_url(embed.url):
+            has_apple_stocks = True
+            break
+      
       # If there are embeds in the original message try to fix the links
       if len(message.embeds) > 0:
         new_links = await self.get_new_links(message.embeds)
@@ -79,6 +137,11 @@ class FixLink(Extension):
             silent=True,
             flags=MessageFlags.SILENT
           )
+          
+          # Optional timeout feature for Apple Stocks links
+          if has_apple_stocks:
+            await self.handle_apple_stocks_timeout(message)
+          
           return
 
   @check(check=not_a_bot)
