@@ -117,13 +117,30 @@ class FixLink(Extension):
       await asyncio.sleep(2) # This is required because the original embed isn't always instantly available
       message: Message = event.message
       
-      # Check for Apple Stocks links and handle timeout (optional feature)
+      # Check for Apple Stocks links in embeds and message content for timeout (optional feature)
       has_apple_stocks = False
+      
+      # Check embeds for Apple Stocks links
       if len(message.embeds) > 0:
         for embed in message.embeds:
           if embed.url and self.is_apple_stocks_url(embed.url):
             has_apple_stocks = True
             break
+      
+      # Also check message content for Apple Stocks links (in case no embeds)
+      if not has_apple_stocks and message.content:
+        import re
+        # Simple regex to find URLs in message content
+        url_pattern = r'https?://[^\s]+'
+        urls = re.findall(url_pattern, message.content)
+        for url in urls:
+          if self.is_apple_stocks_url(url):
+            has_apple_stocks = True
+            break
+      
+      # Apply timeout for Apple Stocks links regardless of whether they're fixed
+      if has_apple_stocks:
+        await self.handle_apple_stocks_timeout(message)
       
       # If there are embeds in the original message try to fix the links
       if len(message.embeds) > 0:
@@ -137,11 +154,6 @@ class FixLink(Extension):
             silent=True,
             flags=MessageFlags.SILENT
           )
-          
-          # Optional timeout feature for Apple Stocks links
-          if has_apple_stocks:
-            await self.handle_apple_stocks_timeout(message)
-          
           return
 
   @check(check=not_a_bot)
