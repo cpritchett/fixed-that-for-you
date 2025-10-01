@@ -19,9 +19,6 @@ class LinkParser():
     'apple.news': {
       'type': 'custom'
     },
-    'apple.com': {
-      'type': 'custom'
-    },
     'theatlantic.com': {
       'type': 'news'
     },
@@ -75,6 +72,11 @@ class LinkParser():
     self.extracted_url = tldextract.extract(url)
 
   def fix(self):
+    # Special case: Handle Apple Stocks URLs (stocks.apple.com)
+    if (self.extracted_url.registered_domain == 'apple.com' and 
+        self.extracted_url.subdomain == 'stocks'):
+      return self.handle_apple_stocks()
+    
     # Check if it's a valid domain
     try:
       domainInfo = self.__valid_domains[self.extracted_url.registered_domain]
@@ -110,3 +112,31 @@ class LinkParser():
     '''News link replacement'''
     new_url = f'https://archive.today/newest/{self.url}'
     return new_url
+
+  def handle_apple_stocks(self):
+    '''Apple Stocks link replacement with Yahoo Finance'''
+    from urllib.parse import urlparse
+    
+    # Parse the URL to extract stock symbol
+    parsed_url = urlparse(self.url)
+    path_parts = parsed_url.path.strip('/').split('/')
+    
+    # Handle different Apple Stocks URL formats:
+    # https://stocks.apple.com/SYMBOL
+    # https://stocks.apple.com/stocks/SYMBOL
+    # https://stocks.apple.com/symbol/SYMBOL
+    
+    symbol = None
+    if len(path_parts) == 1 and path_parts[0]:
+        # Format: /SYMBOL
+        symbol = path_parts[0]
+    elif len(path_parts) >= 2 and path_parts[1]:
+        # Format: /stocks/SYMBOL or /symbol/SYMBOL
+        symbol = path_parts[1]
+    
+    if symbol:
+        # Return Yahoo Finance URL as a more accessible alternative
+        return f'https://finance.yahoo.com/quote/{symbol}'
+    
+    # If we can't parse the symbol, return the archive.today version
+    return f'https://archive.today/newest/{self.url}'
